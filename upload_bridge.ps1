@@ -26,9 +26,12 @@ function Invoke-Git {
 
     $stdoutFile = [System.IO.Path]::GetTempFileName()
     $stderrFile = [System.IO.Path]::GetTempFileName()
+    $previousErrorActionPreference = $ErrorActionPreference
 
     try {
+        $ErrorActionPreference = 'Continue'
         & git @Arguments 1> $stdoutFile 2> $stderrFile
+        $ErrorActionPreference = $previousErrorActionPreference
 
         $stdout = if (Test-Path -LiteralPath $stdoutFile) {
             [string](Get-Content -LiteralPath $stdoutFile -Raw)
@@ -58,6 +61,7 @@ function Invoke-Git {
         return ($stdout.TrimEnd())
     }
     finally {
+        $ErrorActionPreference = $previousErrorActionPreference
         Remove-Item -LiteralPath $stdoutFile, $stderrFile -Force -ErrorAction SilentlyContinue
     }
 }
@@ -117,6 +121,48 @@ function Get-ExistingTags {
     }
 
     return @($raw -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+}
+
+function Try-Get-GitConfigValue {
+    param(
+        [string]$Repo,
+        [string]$Key
+    )
+
+    $stdoutFile = [System.IO.Path]::GetTempFileName()
+    $stderrFile = [System.IO.Path]::GetTempFileName()
+    $previousErrorActionPreference = $ErrorActionPreference
+
+    try {
+        $ErrorActionPreference = 'Continue'
+        & git -C $Repo config --get $Key 1> $stdoutFile 2> $stderrFile
+        $ErrorActionPreference = $previousErrorActionPreference
+
+        if ($LASTEXITCODE -ne 0) {
+            return ''
+        }
+
+        return [string](Get-Content -LiteralPath $stdoutFile -Raw).Trim()
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+        Remove-Item -LiteralPath $stdoutFile, $stderrFile -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Ensure-GitIdentity {
+    param([string]$Repo)
+
+    $name = Try-Get-GitConfigValue -Repo $Repo -Key 'user.name'
+    $email = Try-Get-GitConfigValue -Repo $Repo -Key 'user.email'
+
+    if ([string]::IsNullOrWhiteSpace($name)) {
+        Invoke-Git -Arguments @('-C', $Repo, 'config', 'user.name', 'L&Z') | Out-Null
+    }
+
+    if ([string]::IsNullOrWhiteSpace($email)) {
+        Invoke-Git -Arguments @('-C', $Repo, 'config', 'user.email', 'lz-sync@local.invalid') | Out-Null
+    }
 }
 
 function Get-LatestBaseVersion {
@@ -235,6 +281,7 @@ try {
 
     Write-Step 'Fetching latest remote state'
     Invoke-Git -Arguments @('-C', $RepoPath, 'fetch', 'origin', '--tags', '--prune') | Out-Null
+    Ensure-GitIdentity -Repo $RepoPath
 
     $beforeStatus = Invoke-Git -Arguments @('-C', $RepoPath, 'status', '--short', '--branch')
     $statusLines = @(Get-GitStatusLines -Repo $RepoPath)

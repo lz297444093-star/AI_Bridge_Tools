@@ -1,4 +1,5 @@
 param(
+    [string]$BridgePath = (Join-Path ([Environment]::GetFolderPath('Desktop')) 'AI_Bridge'),
     [string]$RepoUrl = 'https://github.com/lz297444093-star/AI_Bridge.git',
     [string]$Branch = 'main'
 )
@@ -23,9 +24,12 @@ function Invoke-Git {
 
     $stdoutFile = [System.IO.Path]::GetTempFileName()
     $stderrFile = [System.IO.Path]::GetTempFileName()
+    $previousErrorActionPreference = $ErrorActionPreference
 
     try {
+        $ErrorActionPreference = 'Continue'
         & git @Arguments 1> $stdoutFile 2> $stderrFile
+        $ErrorActionPreference = $previousErrorActionPreference
 
         $stdout = if (Test-Path -LiteralPath $stdoutFile) {
             [string](Get-Content -LiteralPath $stdoutFile -Raw)
@@ -55,6 +59,7 @@ function Invoke-Git {
         return ($stdout.TrimEnd())
     }
     finally {
+        $ErrorActionPreference = $previousErrorActionPreference
         Remove-Item -LiteralPath $stdoutFile, $stderrFile -Force -ErrorAction SilentlyContinue
     }
 }
@@ -139,7 +144,7 @@ function Compare-FileMaps {
 }
 
 $desktopPath = [Environment]::GetFolderPath('Desktop')
-$bridgePath = Join-Path $desktopPath 'AI_Bridge'
+$bridgePath = $BridgePath
 $backupRoot = Join-Path $desktopPath 'Backup\AI_Bridge'
 $reportRoot = Join-Path $backupRoot 'reports'
 $timestamp = Get-Date -Format 'yyyyMMdd_HHmmss'
